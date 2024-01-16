@@ -1,0 +1,857 @@
+---
+title: "Project 3 -- Part 2"
+author: "Group Second Project-16"
+date: "11/13/2023"
+format:
+  html:
+    toc: true
+    toc_float: true
+    number-sections: true
+    html-math-method:
+      method: mathjax
+  pdf:
+    documentclass: scrbook
+    fontfamily: libertinus
+editor: visual
+---
+
+```{r label=setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(arrow)
+library(readxl)
+library(writexl)
+library(openxlsx)
+library(repurrrsive)
+library(jsonlite)
+library(scales)
+library(patchwork)
+library(ggrepel)
+library(ggthemes)
+library(ggridges)
+```
+
+# Project 3. Exploring climate related data sets - Part 2
+
+**NOTE**: If you have used AI(s) in producing some of your work, please list the respective AI(s) as a collaborator below. Please also describe the contribution from the input of the AI(s) as well as provide details on how you have used the AI(s) in the process.
+
+## Overview
+
+This project has **TWO** parts, and this file is the **Part 2**. In this part, you will use the NOAA storm data set you have worked with in **Part 1**, together with three further data sets, combining them in various ways to carry out exploratory data analysis, in preparation of model building. You will need to write a report using `RMarkdown`, as a `.Rmd` file.
+
+For this part, you should submit both the `.Rmd` file and the knitted `.pdf` file to the Dropbox on MyLS.
+
+## R Markdown information
+
+First edition of the textbook [27 - 30](https://r4ds.had.co.nz/communicate-intro.html)
+
+## Project introduction
+
+In the recent years, natural disasters are more and more prominently in the news, despite (or because) of the constant human struggles. Many regard them as symptoms of climate change due to human actions, while others think they are just climate doing what it has been doing -- variations, and still many focus on if the population is (un)able to adjust to it. Many believes that humans are exacerbating the changes of climate, while others feel there is nothing that cannot be explained by coincidences of natural factors.
+
+This project will ask you to try and connect some dots in this topic. The main goal of this project is to go through the exploratory data analysis, to understand as much as possible what the stories the data sets available might tell with the tools available.
+
+The theme of the story that we would like to understand is the following:
+
+**How does human action / opinion / feelings relate to climate**.
+
+We are not seeking to decipher the cause and effect on this issue. *Relation* is a very loose notion, which of course have the cause-effect as a special case. Things could be related but not causing each other.
+
+## The datasets
+
+The data are mostly from online sources, which may not be tidy as is. Part of the job is to clean-up the data so that they becomes tidy, before proceed to plot, join, and model them, using techniques we have studied in this course. The report would contain the interpretation of the result you obtain and try to build a coherent story based on the data analysis that you will carry out.
+
+It is also completely reasonable that, from the data sets below, it may appear that some factors do not correlate much to the climate -- which is also knowledge gained.
+
+### World region list (`.csv` file on MyLS)
+
+The data is obtained from [World Regions Classification](https://meta.wikimedia.org/wiki/List_of_countries_by_regional_classification). It is in the file `WorldRegions.csv` included in the Project 3 files on MyLS. You should download it and save to your computer, in the same directory as this project file.
+
+```{r error=TRUE, echo=FALSE}
+(regionclassification <- read_csv("WorldRegions.csv"))
+# regionclassification |> head()
+```
+
+### Storm data for both Atlantic and Pacific basins (from Part 1)
+
+You should have saved a file named `Cyclones-1850-2023.parquet` from **Part 1** of this project. It should be loaded here. Depending on your needs, further transformations can / need to be performed.
+
+```{r error=TRUE}
+cyclone_parquet_file <- "Cyclone-1850-2023.parquet"
+(cyclones <- cyclone_parquet_file |>
+  read_parquet())
+```
+
+### Sea ice data (Lecture 09 and 17 .qmd files)
+
+In Lecture 17, we discussed how to load (and tidy up) multiple sheets from the Sea Ice data, concatenating them in to one dataframe and save to your computer as a `.parquet` file. You may use the code there to load / tidy the data. Similar to the work in **Part 1**, it should be possible to load both `N`orth sea ice and `S`outh sea ice files and bind them into one large dataframe.
+
+**NOTE**: If you do bind the data from the different sheets together, you need to remember to first create columns for recording the name of the file (using respectively `north`, `south`, and `extent` for instance) and the name of the sheet (may use the name of the sheet directly). The [online overview .pdf file](https://nsidc.org/sites/default/files/documents/technical-reference/sea-ice-analysis-spreadsheets-overview.pdf) contains detailed information about the contents of these files.
+
+Again, depending on your needs, further transformations can / need to be performed. For instance, you may want to summarize by month or year, using average (mean) or median, or consider the changes by week etc, together with other interesting statistics.
+
+```{r error=TRUE}
+sea_ice_regional <- "https://masie_web.apps.nsidc.org/pub//DATASETS/NOAA/G02135/seaice_analysis/"
+N_sea <- "N_Sea_Ice_Index_Regional_Daily_Data_G02135_v3.0.xlsx"
+S_sea <- "S_Sea_Ice_Index_Regional_Daily_Data_G02135_v3.0.xlsx"
+ice_extent <- "	Sea_Ice_Index_Daily_Extent_G02135_v3.0.xlsx"
+sea_ice_files <- c(N_sea, S_sea, ice_extent)
+```
+
+### Opinions on climate data from Meta (Project 2)
+
+In Project 2, we loaded some sheets of the public data provided by Meta (formerly Facebook). Citation:
+
+```         
+Data for Good at Meta and the Yale Program on Climate Change Communication. 2022. Climate Change Opinion Survey. Accessed DAY MONTH YEAR.
+```
+
+The file has multiple sheets, and you should load them, perform the necessary cleaning, such as the steps described in Project 2, then consider using some of the sheets for your exploratory analysis.
+
+```{r error=TRUE}
+climate_opinion_address <- "https://data.humdata.org/dataset/dc9f2ca4-8b62-4747-89b1-db426ce617a0/resource/6041db5f-8190-47ff-a10b-9841325de841/download/climate_change_opinion_survey_2022_aggregated.xlsx"
+```
+
+### COVID data from Our World In Data (Lecture 14 .qmd file)
+
+The COVID data is from Our World In Data, which we considered in Lecture 14.
+
+```{r error=TRUE}
+owid_address <- "https://covid.ourworldindata.org/data/owid-covid-data.csv"
+```
+
+### World Happiness Report Score (from 2023 report)
+
+The World Happiness Report is an annual report. The scores are computed based on the answers of people to the following question:
+
+-   "Please imagine a ladder, with steps numbered from 0 at the bottom to 10 at the top. The top of the ladder represents the best possible life for you and the bottom of the ladder represents the worst possible life for you. On which step of the ladder would you say you personally feel you stand at this time?" ([Statistical Appendix 1 for Chapter2](https://happiness-report.s3.amazonaws.com/2023/WHR+23_Statistical_Appendix.pdf) of [World Health Report 20223](https://worldhappiness.report/ed/2023/))
+
+Thus, the scores can be seen as giving one interpretation of happiness.
+
+```{r error=TRUE}
+world_happiness_address <- "https://happiness-report.s3.amazonaws.com/2023/DataForTable2.1WHR2023.xls"
+```
+
+As you see, a number of them are not up-to-date, which is due to the availability of timely data -- most of the interesting current data are not open data, or not easy to locate in more readily useful form to us. Most of these data are from online sources, remotely loading them should track the most up-to-date version.
+
+## Using Map
+
+A map can be a useful way of presenting data with geographical information. As an example, the map below shows the `new cases` obtained from [Our world in data](https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/owid-covid-data.csv).
+
+```{r error=TRUE, echo=FALSE}
+COVID_cases <- read_csv("https://covid.ourworldindata.org/data/owid-covid-data.csv",
+                        col_types = cols(
+                          location = col_character(),
+                          new_cases = col_double(),
+                          total_cases = col_double()
+                        ))
+COVID_cases
+```
+
+```{r error=TRUE, echo=FALSE, warning=FALSE}
+world <- map_data("world")
+
+iu <- COVID_cases |> rename (region = location)
+
+ # to match world map data, see comments below
+iu$region[42] <- "Republic of Congo"
+iu$region[44] <- "Ivory Coast"
+iu$region[48] <- "Czech Republic"
+iu$region[49] <- "Democratic Republic of the Congo"
+iu$region[64] <- "Faroe Islands"
+iu$region[128] <- "Micronesia"
+iu$region[194] <- "Timor"
+iu$region[203] <- "UK"
+(iu$region[204] <- "USA")
+
+(iu <- semi_join(iu, world, by = "region")) #only keep countries according to world map data
+
+# code below is modified from 
+# https://stackoverflow.com/questions/29614972/ggplot-us-state-map-colors-are-fine-polygons-jagged-r
+gg <- ggplot()
+
+gg <- gg + geom_map(
+  data = world,
+  map = world,
+  aes(x = long, y = lat, map_id = region),
+  fill = "#ffffff",
+  color = "#ffffff",
+  size = 0.20
+  )
+
+  gg <- gg + geom_map(
+  data = iu,
+  map = world,
+  aes(fill = new_cases, map_id = region),
+  color = "#ffffff",
+  size = 0.15
+  )
+  
+  gg <- gg + scale_fill_continuous(low = 'thistle2', high = 'darkblue',
+  guide = 'colorbar')
+  gg 
+  
+  
+```
+
+Sometimes, different data sets use different names for the same region / country. You may run the code block below (and remove the `include=FALSE` option) to see the mismatch between some names of the (same) regions in the two data sets `world` and `COVID_cases`. It means that the `semi_join` performed above showing the map is not exactly perfect. Adaptation to `iu$region` was made in the plot above, while there are still some that are not dealt with, e.g. `Antigua and Barbuda` is one row in `COVID_cases`, while two rows are used in `world` map data. Similar issues might affect other data sets provided and you may need to manually change some of them so that they have the same names throughout.
+
+```{r error=TRUE, results='hide'}
+world |> 
+  distinct(region) |> 
+  anti_join(COVID_cases, by = join_by("region" == "location"))
+COVID_cases |> 
+  distinct(location) |> 
+  anti_join(world, by = join_by("location" == "region"))
+```
+
+## The Setup:
+
+There are a total of **6** data collections as described above. We have worked on some of them previously in various contexts. You may still need to make the data tidy for the rest of them. Please note that the data sets are from different sources, you may need to first make sure, for example, the country / region names provided indeed do correspond.
+
+Aside from `regionclassification`, you must use data from at least **3** collections provided above. Provide brief description on the choice of data sets included in your project. Each collection contains more than one sets of data and different groups may work on different data even when choosing the same collections. You are encouraged to discuss among groups, while each group should work their own analysis and write their own report.
+
+You can look at other data sets that are not provided above for inspirations and ideas. You *should not* include data from other sources in your report.
+
+## The Questions:
+
+-   Based on the interpretation of your group, analyze how the current / changing climate situation relate to the various factors, or among themselves. The relationship can be in terms of potential causes, potential effects, or simply correlations. Make your arguments as clear as possible with the help of the data you choose to analyze. If two factors are shown to be not really related, that is also knowledge.
+-   Find *one* online article (published / written within a year) discussing how climate affects / is affected by communities / populations. Discuss if any analysis you have done in the project can be used to *counter* or *strengthen* the some of the arguments presented in the article.
+
+###Correlations to explore: - What had more impact on world hapiness, COVID or climate fear. - is Northen sea ice changing more than the southern. - Model quantity of fear vs the recession of sea ice and storms to determine whether the fear is data based or just according to the influx of news coverage. - How are you most likely to die? Global Warming? Covid? or a Storm? and given the trends how will this change? Then are the fears expressed by people reflecting this?
+
+## Postscript
+
+Although this is the end of the **Project 3** (**Part 2**), the next step should be try to construct models for the relations that are found through the exploratory data analysis.
+
+### Primary Question:
+
+**How do people's fears scale with the actual risks according to the data?? Are those fears grounded in the facts or emotions?**
+
+**Datasets**
+
+Fear_1: Influx of storms across the world? Is this location invariant? Are costal areas more concerned about storms??
+
+Fear_2: COVID: How did this affect world happiness? Are people more afraid
+
+Fear_3: Hypothesis: People in costal areas should be the more concerned about the recession of sea ice than those in nonconstal high alitude ares
+
+# Data Explorations
+
+## World Hapiness
+
+Quesions: - Does this give some reason why people are unhappy. - How is this data curated?
+
+### Thoughts about the data
+
+There are some likely causes for unhappiness or its inverse given in the 11 columns. The primary consideration is the coutry which describes where each person polled lives The reports are the averages of everyone polled from a given country for the year these two values together can be used as a primary key. What on earth is life ladder and negative/positive affect Does perception of corruption increase as there seems to be more or less corruption in the region Are the values given based of the calculated median or a ranking from 0-1 that the polls gave.
+
+**Variable Clarification**
+
+-   *life_ladder:* A ranking from 1-10 that is a general measure of how good those who participated in the survey see their lives from the best being 10 to 1 being the worst.
+-   *log_gdp_per_capita:* This is pretty self explanatory it is just the logorithim of the average gdp for a given country.
+-   *social_support:* The average of the national survey where participants had the choice to indicate whether they felt that they had social support or not.
+-   *healthy_life_expectancy_at_birth:* National average of how long someone will live in somewhat capable state of being
+-   *choice_freedom:* Do the participants consider themselves as free to choose what they do. Average of those who selected satisfied or dissatisfied with their ability to choose.
+-   *generosity:* The average of people who gave to a charity last month and their capita gdp
+-   *positive_affect:* Considers how much people laugh, enjoy life, and do interesting things
+-   *negative_affect:* How sad, worried, and angry people are
+
+### What contirbutions will this data make?
+
+-   Has there been a decline in world happiness along with an influx of concern for the climate? Are these two things related
+
+-   From the data of climate change, sea ice, and covid who has the most grounding to be unhappy due to the peril that they lie in?
+
+-   Does climate concern correlate with the increase of gdp in an area - Map the most unhappy places
+
+```{r}
+(happiness_raw <- read_xls(
+  "C:\\Users\\joelw\\OneDrive - Wilfrid Laurier University\\Fall 2023 Course resources\\DA-100\\Projects\\DS_Project_3_R\\Data_sets\\DataForTable2.1WHR2023.xls") |>
+    rename_with(~ tolower(str_replace_all(.x, " ", "_"))) |>
+    rename(country = country_name, log_gdp = log_gdp_per_capita, health_expectancy = healthy_life_expectancy_at_birth, choice_freedom = freedom_to_make_life_choices, perceived_corruption = perceptions_of_corruption)
+)
+```
+
+#### What causes happiness??
+
+**The columns in the happiness data seem to fall into four different categories.**
+
+1.  **Identification** (country, year) The columns which act as type of key that can be used to uniquely identify each row of the data. These columns are country and year.
+
+2.  **Situational** (health_expectancy, log_gdp) This is data which describes the living conditions of the participants in the poll. These are the things that people must deal with and have little control of.
+
+3.  **Subjective situational** (life_ladder, social_support, choice_freedom, perceived_corruption) This category is similar to situational data with the exception that there may be human bias in the way that they see their situation. For example someone who has moved in a relatively "free" country into a more authoritarian or oligarchical jurisdiction may see their freedom to make choices much more restricted than a person who has lived in the authoritarian country for all their life and has never experienced anything else. This subjective category brings subjective satisfaction into the same number as actual living conditions.
+
+4.  **Response** (generosity, positve_affect, negative_affect) Here the response of the people to their living conditions is outlined. There may be people who have dreadful living conditions, but somehow they have found the secret to happiness.
+
+**How to score happiness from the data?**
+
+> **Question 1:** Are the subjective situational variables related to the response variables. If so then it is reasonable to say that the general happiness measure can be easily described by positive and negative affect (excluding generosity for now as although giving does not directly measure happiness maybe it is one of the consequeses of being happy or satisfied.)
+
+```{r}
+# regression_plot: Create a plot and regression model of each of the situational variables to determine how related each is to positive and negative affect. consider the positive and negative affects independently.
+# Parameters:
+  # IV: (data_frame column) independent varaible (usually one of the subjective situatial)
+  # DV: (data_frame column) dependent variable (Will be either positive_affect or negative_affect)
+  # DV_name: (string) Name that will appear on the plot for the DV otherwise the variable name will be used 
+  # flip: (logical) this allows the caller of the funnction to apply a coordinate flip to the graph
+# Returns
+  # jittered scatter plot of the IV and DV alonq with the regression line
+  # Regression line equation
+regression_plot <- function(IV,DV, x_lab = "", y_lab = "") {
+  fit_ln <- lm(DV ~ IV)
+  x_lab <- if_else(x_lab == "", str_split_i(deparse(substitute(IV)), "\\$", -1), x_lab)
+  y_lab <- if_else(y_lab == "", str_split_i(deparse(substitute(DV)), "\\$", -1), y_lab)
+  correlation = cor(IV,DV, use = "complete.obs")
+  ggplot(mapping = aes(x = {{IV}}, y = {{DV}})) +
+    geom_jitter() +
+    geom_abline(
+      slope = fit_ln$coefficients[["IV"]], 
+      intercept = fit_ln$coefficients[["(Intercept)"]],
+      color = "red"
+      ) +
+    geom_smooth() +
+    labs(
+      title = str_glue("What impact does {x_lab} have on {y_lab}"),
+      subtitle = str_glue("{x_lab} and {y_lab} have a correlation of {correlation}"),
+      x = x_lab,
+      y = y_lab 
+    )
+}
+
+purrr::imap(select(happiness_raw, life_ladder:perceived_corruption), ~regression_plot(happiness_raw$positive_affect, .x, y_lab = .y))
+```
+
+People evidently care more about how they live than how long their life is
+
+```{r}
+sapply(select(happiness_raw, life_ladder:perceived_corruption), function(x) cor(happiness_raw$positive_affect,x, use = "complete.obs"))
+```
+
+```{r}
+# What variables are most correlated with happiness 
+happiness_raw |> summarise(
+  across(life_ladder:perceived_corruption,~ cor(.x, positive_affect, use="complete.obs"), .names = "{.col}_positive_cor"),
+  across(life_ladder:perceived_corruption,~ cor(.x, negative_affect, use="complete.obs"), .names = "{.col}_negative_cor")
+) 
+# apparently the variable that correlates most with positive affect is the choice freedom
+```
+
+### Ranking countries by climate concern
+
+**Data Notes:**
+
+-   This was a survey taken in 2022 so there is no time variable that can be used to track the progression of climate concern
+
+-   The concern is grouped by country which allows us to combine this to other countries
+
+```{r}
+# Read specific sheets from xlsx file
+# Parameters:
+  # sheet: (string) The name of the sheet to be loaded
+  # parent = climate_opinion_address: (string) parent x
+# Return: 
+  # Loaded sheet
+load_sheet <- function(sheet, parent = climate_opinion_address) {
+  parent |> 
+    read.xlsx(sheet = sheet)
+}
+
+(sheet_names <- climate_opinion_address |> 
+  loadWorkbook() |> sheets()
+ )
+
+(selected_sheets <- sheet_names[3:end(sheet_names)])
+
+```
+
+**Load all the sheets and put them into a named list**
+
+```{r}
+# 
+(climate_poll_raw <- purrr::map(selected_sheets, load_sheet))
+names(climate_poll_raw) <- as.vector(selected_sheets)
+```
+
+**Merge it all together**
+
+```{r}
+# join_sheets: Takes any of the climate opinon sheets and joins the into one sheet while also recording the question and answer form each sheet
+# parameters:
+  # add_sheet: (tibble) The sheet from the climate_poll_raw that you want to add
+  # master_sheet: (tibble) The sheet that you would like to add the values to. This sheet must have a columns named question_answer that has the correspondence from other sheets in it. 
+# Return:
+  # Master sheet that has the joined data 
+join_sheets <- function(add_sheet, master_sheet) {
+  joined <- master_sheet |>
+  full_join(add_sheet)
+}
+```
+
+```{r}
+# make_question_answer: makes the column that two columns into a question_answer column with the result being question-answer
+# The funciton looks for an existing question_answer col and if there is not one then a new one is created otherwise all the new values are added to the existing one.
+# If there are mutliple unweighted bases then the first is used as it is consistent across each country
+# Parameters:
+  # df: (tibble) data frame that has the inidcated columns
+  # answer_cols c(tibble columns) give a list of column names to be added to the question_answer col
+# Return:
+  # tibble with question_answer col
+make_question_answer <- function(df, answer_cols) {
+  if(!("question_answer" %in% colnames(df))) {
+    df <- df |> mutate(question_answer = NA)
+  }
+  pivot_longer(
+    df,
+    cols = answer_cols,
+    names_to = "question",
+    values_to = "answer",
+    values_drop_na = TRUE
+  ) |>
+  mutate(
+    question_answer = str_c(question, answer, sep = "-")
+  ) |> 
+  select(-c(question, answer)) |>
+  select(question_answer, everything()) |>
+  pivot_longer(
+    cols = c(Albania:Zambia),
+    names_to = "country",
+    values_to = "response_perc"
+  ) |>
+  mutate(
+    response_perc = round(response_perc, 2),
+    unweighted_bias = if_else(str_detect(question_answer, "(Unweighted Base)"), response_perc, NA)
+  ) |> 
+  group_by(country) |>
+  fill(unweighted_bias, .direction = "updown") |>
+  ungroup() |>
+  filter(!(str_detect(question_answer, "Unweighted Base"))) 
+}
+
+```
+
+```{r}
+(master_sheet <- climate_poll_raw[[1]])
+(join_sheets(climate_poll_raw[[1]], climate_poll_raw[[2]]) |> join_sheets(climate_poll_raw[[4]]))
+
+for(sheet in climate_poll_raw[2:end(climate_poll_raw)]) {
+  master_sheet <- join_sheets(sheet, master_sheet)
+}
+(master_climate_tidy <- master_sheet |> make_question_answer(colnames(select(master_sheet,-(Albania:Zambia)))) |> 
+  arrange(country) |> 
+  mutate(
+     country = str_replace_all(country, "\\.", " ")
+   ) 
+)
+```
+
+### Create a map of world gdp and world climate concern in 2022
+
+**Clean the regions data**
+
+```{r}
+(region_classification_tidy <- regionclassification |> 
+  separate_wider_delim(
+    cols = "Country\tRegion\tGlobal South",
+    delim = "\t",
+    names = c("country", "region", "economic_state")
+  ) |>
+    mutate(
+      economic_state = if_else(str_remove(str_remove(economic_state, "Global\\s"), "([a-z])+") == "N", "Developed", "Developing"),
+      across(everything(), str_trim)
+      )
+)
+```
+
+**Step 1:** Add gdp data to the master_tidy data
+
+> Since the poll was taken in 2022 only the gdp in that year will be considered The data will be joined where the gdp gets added only if that country was in the data poll
+
+**Enusre that the names of the countries match the regions in the world dataset**
+
+```{r}
+# rename_var: assigns a new value to any row entry that has a given string pattern in the specified column 
+# Parameters:
+  # df (tibble) the dataframe that contains the variables to be renamed
+  # old_name (string) name that is currently in the dataframe
+  # new_name (string) name that will be assigned to the old_name
+  # col = (tibble column) the column that has the values to be renamed
+# Return:
+  # New dataframe with the updated row_names
+rename_var <- function(df, old_name, new_name, col) {
+  name <-  str_split(deparse(substitute(col)), "\\$")[[1]][2]
+  df |>
+  mutate(
+    "{name}" := if_else(old_name == col, new_name, col)
+  )
+}
+```
+
+**Search to see where the countries are not matching**
+
+```{r}
+(master_climate_tidy |> summarize(.by = country) |>  
+  anti_join(summarize(happiness_raw, .by = country), by = join_by(country)) |> as.vector())[[1]]
+
+happiness_raw |> summarise(.by = country) |> view()
+```
+
+**Rename all the country names to all match with the worlds dataset**
+
+```{r}
+# Change all the names to a fitting name that is compatable with the world data set
+(master_climate_countries <- master_climate_tidy |> summarize(.by = country))
+(countries_old_names <- (master_climate_countries |> 
+  anti_join(summarize(world, .by = region), by = join_by(country ==  region)) |> as.vector())[[1]])
+
+countries_new_names <- c("Philippines", "Bolivia", "Cuba", "Democratic Republic of the Congo", "Ivory Coast", "Czech Republic", "China", "Laos", "North Macedonia", "Sudan", "Trinidad", "UK", "USA")
+
+master_climate_renamed <- master_climate_tidy
+for(i in 1:length(countries_new_names)) {
+  master_climate_renamed <- rename_var(master_climate_renamed, countries_old_names[i], countries_new_names[i], master_climate_renamed$country)
+}
+```
+
+**Now rename all the happiness countires that don't match master_climate_renamed**
+
+```{r}
+(happiness_countries_new <- (master_climate_renamed |> summarize(.by = country) |>
+  anti_join(summarize(happiness_raw, .by = country), by = join_by(country)) |> as.vector())[[1]])
+
+(happiness_countries_old <- c("Congo (Kinshasa)", "Czechia", "Puerto Rico", "Taiwan Province of China", "Trinidad and Tobago", "Turkiye", "United Kingdom", "United States"))
+
+happiness_renamed <- happiness_raw
+for(i in 1:length(happiness_countries_old)) {
+  happiness_renamed <- rename_var(happiness_renamed, happiness_countries_old[i], happiness_countries_new[i], happiness_renamed$country)
+}
+# Fill the log_gdp values from previous years into the next one if that value is missing. 
+happiness_renamed <- happiness_renamed |> group_by(country) |> fill(log_gdp, .direction = "down") |> ungroup() 
+```
+
+```{r}
+# Sanity check: do all the names of corresponding coutries match between the happiness data and the climate_master and do those both match the world dataset?
+master_climate_renamed |> summarize(.by = country) |>
+  anti_join(happiness_renamed|> summarize(.by = country), by = join_by(country))
+# Note that this give Puerto Rico, but that is because there was no puerto rico particiaption the happiness survey
+master_climate_renamed |> summarize(.by = country) |>
+  anti_join(world |> summarize(.by = region), by = join_by(country == region))
+
+# The log_gdp values are filled down here to allow the most 
+(gdp_climate_master <-  master_climate_renamed |>
+  inner_join(happiness_renamed |> filter(year == 2022), by = join_by(country)) |>
+  select(question_answer, country, response_perc, unweighted_bias, life_ladder:negative_affect)  |>
+  mutate(
+     country = str_replace_all(country, "\\.", " ")
+   ) 
+)
+
+# Check for NA value in the gdp to verify that none of them are from naming errors
+gdp_climate_master |> filter(is.na(log_gdp))
+```
+
+**Step 2:** Map the world by gdp
+
+```{r}
+#  Manually adding or chaning rows to accomodate the nuances of coutry naming
+regioned_old <- c("Congo, The Democratic Republic of the", "Lao People's Democratic Republic", "Côte D'Ivoire", "Macedonia", "Korea, Democratic People's Republic of", "Trinidad and Tobago", "United Kingdom", "United States")
+
+regioned_new <- c("Democratic Republic of the Congo", "Laos", "Ivory Coast","North Macedonia","South Korea","Trinidad","UK", "USA" )
+
+(region_classification_tidy_2 <- region_classification_tidy)
+for(i in 1:length(regioned_old)) {
+  region_classification_tidy_2 <- rename_var(region_classification_tidy_2, regioned_old[i], regioned_new[i], region_classification_tidy_2$country)
+}
+
+(regioned_add <- gdp_climate_master |> summarize(.by = country) |> 
+  anti_join(region_classification_tidy_2, by = join_by(country)) |> as.vector())[[1]]
+
+
+(row_to_add <- tibble(
+    country = regioned_add[[1]],
+    region = c("Europe", "Africa"),
+    economic_state = c("Developed", "Developing")
+  )
+)
+
+region_classification_tidy |> view()
+(region_classification_final <- purrr::list_rbind(list(region_classification_tidy_2, row_to_add)))
+```
+
+#### Putting it all together
+
+Since all the country names are now matched correctly to the world data it is ready to be combined and mapped for analysis.
+
+```{r}
+# Add a regions and economic state column into the dataset for further classification about the region where every country lies
+(gdp_climate_final <- gdp_climate_master |> 
+   left_join(region_classification_final, by = join_by(country)) |> 
+   select(question_answer, country, region, everything())
+ )
+
+# Verify that there are still no unmatched countries in the climate data
+gdp_climate_final |> summarize(.by = country) |> 
+  anti_join(world |> summarize(.by = region), by = join_by(country == region))
+
+
+
+gdp_climate_final |> filter(is.na(log_gdp)) |> summarize(.by = country) |> 
+  full_join(happiness_raw , by = join_by(country)) |> filter(year == 2022 & is.na(log_gdp))
+```
+
+**Plot it on the map** Now we can understand the distribtuion of concern for the climate along with the amount of gdp per capita a country has
+
+```{r}
+region_classification_final |> 
+  anti_join(world |> summarise(.by = region), by = join_by(country == region))
+# gdp_climate_final <- gdp_climate_final |> mutate(
+#   real_gdp = 10^log_gdp
+# )
+gg <- ggplot()
+world_map <- gg + geom_map(
+  data = world,
+  map = world,
+  aes(x = long, y = lat, map_id = region),
+  fill = "gray",
+  color = "#ffffff",
+  size = 0.20
+  )
+  
+# Create a map of the countries with the most gdp
+(gdp_map <- world_map + geom_map(
+  data = gdp_climate_final,
+  map = world,
+  aes(fill = log_gdp, map_id = country),
+  color = "#ffffff",
+  size = 0.15
+  ) + 
+  scale_fill_viridis_c() +
+  labs(
+    title = "What surveyed countries have the highest Gross Domestic Proft per capita",
+    subtitle = "The gdp values are on a logorithmic scale"
+  )
+)
+```
+
+### Which countries are the most concerned about climate
+
+**How should climate concern be scored?**
+
+> Of all the questions that people were polled about with pertinance to the climate the best marker of concern seems to be climate worry. To score this the five levels of climate worry are ranked from 1-5 where 1 is "refused" and 5 is "very_worried". The score for each response percentage is multiplied by its corrsponding level and then added to a total to yeild a final score.
+
+```{r}
+answer_levels <- list(
+  climate_happening = c("Yes", "Don't know", "Refused", "No"),
+  climate_awareness = c("I know a lot about it", "I know a moderate amount about it", "I know a little about it","Refused", "I have never heard of it"),
+  climate_worry = c("Very worried","Somewhat worried","Not very worried", "Not at all worried", "Refused"),
+  climate_beliefs = c("Caused mostly by human activities","Caused about equally by human activities and natural changes","Caused mostly by natural changes in the environment","Other","Refused","None of the above because climate change isn’t happening"),
+  harm_personally = c("A great deal","A moderate amount","Don't know","Only a little","Refused","Not at all"),
+  harm_future_gen = c("A great deal","A moderate amount","Don't know","Only a little","Refused","Not at all"),
+  threat_20_years = c("Very serious threat", "Somewhat serious threat", "Don't know", "Refused", "Not a threat at all"),
+  climate_importance = c("Extremely important","Very important","Somewhat important","Not too important","Not at all important", "Refused"),
+  economic_impact = c( "Reduce economic growth and cost jobs", "Have no effect on economic growth or jobs", "Improve economic growth and provide new jobs","Refused"),
+  renewable_more_less = c("Much more","Somewhat more","Same amount as today","Don’t know", "Somewhat less","Much less","Refused"),
+  fossil_more_less = c("Refused", "Much less", "Somewhat less", "Don’t know", "Same amount as today", "Somewhat more", "Much more"),
+  gov_priority = c("Very high","High","Medium","Low","Refused"),
+  country_responsibility = c("Regardless of what other countries do", "Only if the countries that produce the most pollution reduce their pollution", "Only if most other countries around the world reduce their pollution","Don’t know", "The country (or territory) where I live should not reduce its pollution","Refused"),
+  most_responsible = c("The government", "Businesses", "Individual people", "Don’t know", "The country (or territory) where I live should not reduce its pollution",  "Refused"),
+  organized_group = c("I am participating in an effort like this now", "I definitely would do it", "I probably would do it","Not sure", "I probably would not do it", "I definitely would not do it", "Refused"),
+  freq_hear = c("At least once a week", "At least once a month",  "Several times a year", "Once a year or less often","Don't know", "Never","Refused")
+)
+# opinion_vs_gdp This gets each opinion section and compares it to the gdp of that county
+# parameters:
+  # gdp_climate_df: (tibble) the dataframe of gdp and climate
+  # key_word: (string) the key word or phrase that describes the polling question
+# Return:
+  # Dataframe of the question with a score for the extent of concern
+opinion_vs_gdp <- function(gdp_climate_df, key_word) {
+   gdp_climate_final |>
+    filter(str_detect(question_answer, key_word)) |>
+    mutate(
+      score_levels = factor(str_remove(question_answer, str_c(key_word, "-")), levels = rev(answer_levels[key_word][[1]])) |> as.numeric()
+    ) |>
+    select(-question_answer) |>
+    mutate( 
+      .by = country,
+      "{key_word}" := sum(score_levels*response_perc, na.rm = TRUE),
+      .keep = "unused"
+    ) |> 
+    distinct()
+}
+
+(questions <- gdp_climate_final$question_answer |> str_split_i("-", 1) |> unique())
+(gdp_concern_scored <- opinion_vs_gdp(gdp_climate_final, questions[1]))
+
+
+for(question in questions[2:end(questions)]) {
+  gdp_concern_scored <- inner_join(
+    gdp_concern_scored, 
+    opinion_vs_gdp(gdp_climate_final, question) |> select(question, country), 
+    by = join_by(country))
+}
+(gdp_concern_scored <- gdp_concern_scored |> select(country, region, log_gdp, economic_state:freq_hear, everything()))
+```
+
+```{r}
+# question_options: For any of the questions on the poll this returns a vector the options that participants have when the did poll
+# Parameters:
+  # df: (tibble) the gdp climate dataframe
+  # question: (string) question that was given to users
+# Return
+  # (vector of strings) the options of answers that participants were given
+question_options <- function(df, key_word) {
+   df |> 
+    filter(str_detect(question_answer, key_word)) |>
+    mutate(
+      score_cat = str_remove(question_answer, str_c(key_word, "-")),
+    ) |>
+    pull(score_cat) |>
+    as.vector() |>
+    unique() |> 
+    str_flatten(collapse = ", ")
+}
+purrr::map(questions, ~ question_options(gdp_climate_final, .x))
+```
+
+```{r message=FALSE}
+# map_concern: From the scored gdp data it creates a map displaying the distdribution of concern of the polled question
+# Parameters:
+  # question_data: (tibble) the dataset with all the questions and scored responses 
+  # question: (string) the name of the question column that is in interest here
+# Return: 
+   # ggplot visualization of the question vs the log gdp 
+map_concern <- function(question_data, question) {
+  # Create a map of the countries with the most gdp
+  world_map + geom_map(
+    data = question_data,
+    map = world,
+    aes(fill = .data[[question]], map_id = country),
+    color = "#ffffff",
+    size = 0.15
+    ) +
+    scale_fill_viridis_c() +
+    labs(
+      title = str_glue("Distribution of {question} across suerveyed countries"),
+      subtitle = str_wrap(str_glue("Question categories: {str_flatten(answer_levels[question], collapse = ", ")}"), width = 100, whitespace_only = TRUE),
+      fill = question,
+    ) 
+}
+
+purrr::map(questions, ~ map_concern(gdp_concern_scored, .x))
+gdp_concern_scored |> select(log_gdp, climate_awareness:negative_affect) |> cor(use = "complete.obs") |> corrplot()
+gdp_concern_scored
+```
+
+```{r}
+(europe_countries <- (gdp_climate_final |> filter(region == "Europe") |> summarize(.by = country) |> c())[[1]])
+(europe_coords <- world |> filter(region %in% europe_countries))
+europe_map <- gg + geom_map(
+      data = europe_coords,
+      map = europe_coords,
+      aes(x = long, y = lat, map_id = region),
+      fill = "gray",
+      color = "#ffffff",
+      size = 0.20
+    )
+
+europe_map + geom_map(
+  data = gdp_concern_scored |> filter(region == "Europe"),
+  map = world,
+  aes(fill = .data[["climate_awareness"]], map_id = country),
+  color = "#ffffff",
+  size = 0.15
+  ) +
+  scale_fill_viridis_c() 
+  
+```
+
+**How does climate worry pertain to gdp?**
+
+```{r}
+purrr::imap(select(gdp_concern_scored, climate_awareness:freq_hear), ~regression_plot(gdp_concern_scored$log_gdp, .x, y_lab = .y))
+```
+
+```{r}
+gdp_concern_scored
+for(i in questions) {
+  print(gdp_concern_scored |> ggplot(mapping = aes(x = .data[[i]], fill = economic_state)) + 
+          geom_histogram(binwidth = 20, position = "dodge", color = "black") +
+          labs(
+            title = str_glue("Economic impact and {i}"),
+            y = str_glue("{i}")
+          )
+         )
+}
+
+gdp_climate_final
+```
+
+**How does some of the happiness data correlate with the climate polls**
+
+```{r}
+# Mapping of postive affect
+(mapping_questions <- gdp_concern_scored |> select(life_ladder:negative_affect) |> colnames())
+gdp_concern_scored
+
+purrr::map(mapping_questions, \(.)map_concern(gdp_concern_scored, .))
+
+
+# Does the threat over 20 years and health expectancy correlate?
+purrr::imap(select(gdp_concern_scored, climate_awareness:freq_hear), ~regression_plot(gdp_concern_scored$life_ladder, .x, y_lab = .y))
+
+# Watching the way in which climate worry, climate beliefs desire to reduce fossil fuels and frequency of hearing about climate relate to eachother
+interesting_vars <- c("fossil_more_less", "climate_worry", "climate_beliefs", "freq_hear", "climate_awareness")
+for(var in interesting_vars) {
+  for(var_2 in interesting_vars[which(interesting_vars != var)]) {
+    # Show the relationship between frequency hearing and fossil fuel reduction
+    print(regression_plot(gdp_concern_scored[[var]], gdp_concern_scored[[var_2]], x_lab = var, y_lab = var_2))
+  }
+}
+
+# What is actually related to climate worry?
+purrr::imap(select(gdp_concern_scored, climate_awareness:negative_affect), ~regression_plot(gdp_concern_scored$climate_worry, .x, y_lab = .y))
+purrr::imap(select(gdp_concern_scored, climate_awareness:negative_affect), ~regression_plot(gdp_concern_scored$fossil_more_less, .x, y_lab = .y))
+gdp_concern_scored
+# It seems that there seems to be primary bin types of concern. First there is the bin of a more solution based approach which shows that people who hear about climate issues more often tend to take. The pragmatic approach may be more dull to the possibility of climate change. A key thing to note is that perhaps something that you know little about may be one of the most terrifying things. If you do not hear much about climate change maybe it is the back burning thing in your mind
+```
+**Which climate concerns are the most correlated?** - How does the frequency of hearing correlate to the worry - Is the urgency to implement renewables correlated with the urgency to remove fossil fuels
+
+
+Joel's Tasks: 
+
+2.  Have people in costal regions become more afraid as sea ice disappears. HAs fear about the climate also grown with the number of storms.
+
+```{r}
+(asia_countries <- (gdp_climate_final |> filter(region == "Asia & Pacific") |> summarize(.by = country) |> c())[[1]])
+(asia_coords <- world |> filter(region %in% asia_countries))
+asia_map <- gg + geom_map(
+      data = asia_coords,
+      map = asia_coords,
+      aes(x = long, y = lat, map_id = region),
+      fill = "gray",
+      color = "black",
+      size = 0.20
+    )
+
+asia_map + geom_map(
+  data = gdp_concern_scored |> filter(region == "Asia & Pacific"),
+  map = world,
+  aes(fill = .data[["climate_awareness"]], map_id = country),
+  color = "#ffffff",
+  size = 0.15
+  ) +
+  scale_fill_viridis_c() 
+  
+```
+
+
+3.  Is happiness lower in areas where they people are more concerned about cimate?
+
+4.  So, does climate issues seem to change th worry of the population compared to something like covid. The effect of climate on the happiness level can be shown by the difference in countries
+
+5.  Group the countries by economic state and show the difference in concern for the climate
+
+6.  This is the right idea. Rich countries should be pursuing limits on the fossil fuels while the developing countries should have less restricted access to fossil fuels needed to develop [arcticle](%22https://econ.gatech.edu/projects/are-fossil-fuel-resources-important-economic-development%22)
+
+7.  Look at costal countries and consider if they are more concened given the rising sea levels

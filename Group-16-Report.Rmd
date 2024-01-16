@@ -1,0 +1,872 @@
+---
+title: "What Factors Spur the Public Opinion About Climate Change?"
+subtitle: "DA-100 Shengda Hu"
+author: "Group-16: Matlani Bhaveeka Shatrughan, Ali Mirza, Kyle Pearson, Meikaimemxo Roller, Joel Weber"
+date: "11/30/2023"
+output: 
+  html_document: default
+  pdf_document: default
+  html_notebook: default
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r label=setup, include=FALSE, message=FALSE, echo=FALSE, results='hide'}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(arrow)
+library(readxl)
+library(writexl)
+library(openxlsx)
+library(repurrrsive)
+library(jsonlite)
+library(scales)
+library(patchwork)
+library(ggrepel)
+library(ggthemes)
+library(ggridges)
+library(gridExtra)
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# Defining the worlds regions
+world <- map_data("world")
+```
+
+```{r error=TRUE, echo=FALSE, results='hide', message=FALSE}
+(regionclassification <- read_csv("WorldRegions.csv"))
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+(region_classification_tidy <- regionclassification |> 
+  separate_wider_delim(
+    cols = "Country\tRegion\tGlobal South",
+    delim = "\t",
+    names = c("country", "region", "economic_state")
+  ) |>
+    mutate(
+      economic_state = if_else(str_remove(str_remove(economic_state, "Global\\s"), "([a-z])+") == "N", "Developed", "Developing"),
+      across(everything(), str_trim)
+      )
+)
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# Define and run all the the functions
+
+# rename_var: assigns a new value to any row entry that has a given string pattern in the specified column 
+# Parameters:
+  # df (tibble) the dataframe that contains the variables to be renamed
+  # old_name (string) name that is currently in the dataframe
+  # new_name (string) name that will be assigned to the old_name
+  # col = (tibble column) the column that has the values to be renamed
+# Return:
+  # New dataframe with the updated row_names
+rename_var <- function(df, old_name, new_name, col) {
+  name <-  str_split(deparse(substitute(col)), "\\$")[[1]][2]
+  df |>
+  mutate(
+    "{name}" := if_else(old_name == col, new_name, col)
+  )
+}
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# The regression plot was the primary method used to explore and show correlations between varibles.
+# regression_plot: Create a plot and regression model of each of the situational variables to determine how related each is to positive and negative affect. consider the positive and negative affects independently.
+# Parameters:
+  # IV: (data_frame column) independent varaible (usually one of the subjective situatial)
+  # DV: (data_frame column) dependent variable (Will be either positive_affect or negative_affect)
+  # x_lab: (string) Name that will appear on the plot for the x variable (IV) otherwise the variable name will be used 
+  # y_lab: (string) Name that will appear on the plot for the y variable (DV) 
+  # color: (data_frame column) A discrete variable that the point colors will be assigned to. The name on the legend is just th column name provided to the color.
+  # minimal_labels (logical) If this is set to true the labelling becomes as short as it reasonably can be
+  # title (string) an optional title parameter. If not provided the title will be "What impact does {x_lab} have on {y_lab}"
+  # caption (string) an option caption about the data. Usually used for attribution
+# Returns
+  # scatter plot of the IV and DV alonq with the regression line
+  # Regression line equation
+regression_plot <- function(IV,DV, x_lab = "", y_lab = "", color = NULL, title = "", caption = "", minimal_labels = FALSE) {
+  fit_ln <- lm(DV ~ IV)
+  correlation = cor(IV,DV, use = "complete.obs")
+  x_lab <- if_else(x_lab == "", str_split_i(deparse(substitute(IV)), "\\$", -1), x_lab)
+  y_lab <- if_else(y_lab == "", str_split_i(deparse(substitute(DV)), "\\$", -1), y_lab)
+  title <- if_else(minimal_labels == TRUE, str_glue("{x_lab} and {y_lab}"), title)
+  ggplot(mapping = aes(x = {{IV}}, y = {{DV}})) +
+    geom_point(mapping = aes(color = {{color}})) +
+    geom_abline(
+      slope = fit_ln$coefficients[["IV"]], 
+      intercept = fit_ln$coefficients[["(Intercept)"]],
+      color = "red"
+      ) +
+    geom_smooth() +
+    labs(
+      title = if_else(title == "", str_glue("What impact does {x_lab} have on {y_lab}"), title),
+      subtitle = if_else(minimal_labels == TRUE, str_glue("correlation of {correlation}"), str_glue("{x_lab} and {y_lab} have a correlation of {correlation}")),
+      x = x_lab,
+      y = y_lab,
+      color = str_split_i(deparse(substitute(color)), "\\$", -1),
+      caption = caption
+    )
+}
+# purrr::imap(select(happiness_raw, life_ladder:perceived_corruption), ~regression_plot(happiness_raw$positive_affect, .x, y_lab = .y))
+```
+
+\newpage
+
+## Content List
+
+1.  What affects the public's opinion of climate change?
+
+    1.1 Approach to exploring the question
+
+    1.2 What relevance does public opinion have to climate change
+
+    1.3 Theorized predictors for climate concern
+
+2.  About the data
+
+    2.1 Rational for data set choice
+
+    2.2 Details about the world happiness data
+
+    2.3 Details about the climate opinion data
+
+    2.4 Details about the sea ice data
+
+    2.5 Details about the cyclones data
+
+    2.6 Data tidying process
+
+    > 2.6.1 Tidying of the climate opinion data
+    >
+    > 2.6.2 Merging of the happiness data with climate opinion
+
+3.  Analysis of GDP
+
+    3.1 The GDP distribution
+
+    3.2 Why is GDP relevant to climate
+
+4.  How does a countries' GDP per capita affect their climate opinions
+
+    4.1 Maps of climate opinion
+
+    > 4.1.1 Climate beliefs
+    >
+    > 4.1.2 Fossil fuel reduction
+    >
+    > 4.1.3 Climate worry
+    >
+    > 4.1.4 Frequency of hearing about climate
+
+    4.2 How does economics infiltrate the climate opinion
+
+    > 4.2.1 GDP and climate opinion
+    >
+    > 4.2.2 Affordability of reducing fossil fuels
+
+5.  What causes worry about climate
+
+    5.1 Plotting with climate worry, frequency of hearing, and climate beliefs
+
+    5.2 More worried countries are geographically at risk.
+
+    5.3 What can be done for the at risk countries
+
+6.  Conclusion a better approach to fighting climate change
+
+    6.1 Develop more countries
+
+    6.2 Climate change is an engineering problem
+
+7.  References
+
+\newpage
+
+# 1. What affects the public's opinion of climate change?
+
+## 1.1 Approach to exploring the question:
+
+> This is a presentation meant to show how the perception of climate related issues varies over different geographic and socioeconomic regions. The purpose of this exploration is to be able to predict how people in different areas will formulate an opinion on climate change. The predictions made by plots, regression models, and maps can provide intuition to policy makers about how to best approach climate change while remaining reasonable in other domains. Another key consideration is the geographic location of a country. Perhaps there is more merit for island countries to be concerned about sea ice declining as they could become submerged. So geographic data is also heavily considered.
+
+## 1.2 Why is the public's opinion relevant to climate:
+
+> It is critical for anyone who is trying to understand data about climate change to also recognize that actions are ultimately backed by humans. When a country makes a policy about climate they must understand what impressions it will have on their residents. It is quite important to note that climate change is not the only narrative to consider when attempting to make beneficial decisions for a population. This report demonstrates that there are many countries that may need to address economic and social issues prior to considering major climate reform.
+
+## 1.3 Theorized predictors for climate concern:
+
+> Before exploring the data these were some theorized predictors that were considered as likely candidates for causing climate concern. The GDP per capita seems like a probable predictor for climate concern as people who have all their needs satisfied should be able to allocate more consideration to the future and the future of their children. Coupled with GDP is the living conditions of a country. If they have a higher living standard then it seems likely that they will also be more concerned about the climate. Finally the frequency of hearing about climate should act as a fear mongering force which in turn makes people more concerned about the climate.
+
+# 2. About the data
+
+## 2.1 Rational for data set choice:
+
+> The data leans heavily on the social side of climate change because it is an attempt to understand what factors are actually changing opinion about the data. For this reason the primary focus is on the climate opinion data set and the GDP variable given in the world happiness data set. Some of the other country scores are considered the happiness data, but most of them were found to be relatively unrelated to climate opinion and were therefore disregarded.
+>
+> The sea ice data was used as a more pragmatic grounding for the primarily opinion based world happiness data. The sea ice data is considered to determine whether the climate concerns and actions of people are primarily based on real data like sea ice slowly receding or if climate awareness and popular culture play a larger role.
+
+## 2.2 Details about the world happiness data:
+
+> This data was given as a mostly tidy csv file.
+>
+> **Size:** 2199 x 11
+>
+> **Columns:**
+
+> -   *life_ladder:* (double) A ranking from 1-10 that is a general measure of how good those who participated in the survey see their lives from the best being 10 to 1 being the worst.
+>
+> -   *log_gdp:* (double) This is the logarithm of the average gross domestic profit that each person in a given country has.
+>
+> -   *social_support:* (double) The average of the national survey where participants had the choice to indicate whether they felt that they had social support or not.
+>
+> -   *health_expectancy:* (double) National average of how long someone will live in somewhat capable state of being from the time they were born. This is given as an age in years
+>
+> -   *choice_freedom:* (double) Do the participants consider themselves as free to choose what they do. Average of those who selected satisfied or dissatisfied with their ability to choose.
+>
+> -   *generosity:* (double) The average of people who gave to a charity last month and their capita gdp
+>
+> -   *positive_affect:* (double) Considers how much people laugh, enjoy life, and do interesting things
+>
+> -   *negative_affect:* (double) How sad, worried, and angry people are
+
+```{r, echo=FALSE, results='hide',warning=FALSE}
+# # Note: It does not work to load the sheet from the url so it must be downloaded and loaded locally 
+ (happiness_raw <- read_xls(
+   "C:\\Users\\joelw\\OneDrive - Wilfrid Laurier University\\Fall 2023 Course resources\\DA-100\\Projects\\DS_Project_3_R\\Data_sets\\DataForTable2.1WHR2023.xls") |>
+     rename_with(~ tolower(str_replace_all(.x, " ", "_"))) |>
+     rename(country = country_name, log_gdp = log_gdp_per_capita, health_expectancy = healthy_life_expectancy_at_birth, choice_freedom = freedom_to_make_life_choices, perceived_corruption = perceptions_of_corruption)
+ )
+```
+
+## 2.3 Details about the climate opinion data:
+
+The climate opinion data was given in an excel sheet with a corresponding sheet for every different question that people were polled about. All these sheets were merged into one large sheet and each question and answer was combined into one string the placed in a question_answer column. The tidy data is detailed below.
+
+> **Size:** 10120 x 4
+>
+> **Columns:**
+>
+> -   *question_answer:* (string) This is the poll question and answer category joined and separated by a "-".
+>
+> -   *country:* (string) Name of the country that participated in the climate poll.
+>
+> -   *response_perc:* (double) The percentage to two decimal places of participants that answered in a given category.
+>
+> -   *unweighted_bias:* (integer) The number of people from the given country that participated in the climate poll.
+
+```{r, echo=FALSE, results='hide',warning=FALSE, message=FALSE}
+climate_opinion_address <- "https://data.humdata.org/dataset/dc9f2ca4-8b62-4747-89b1-db426ce617a0/resource/6041db5f-8190-47ff-a10b-9841325de841/download/climate_change_opinion_survey_2022_aggregated.xlsx"
+
+# Read specific sheets from xlsx file
+# Parameters:
+  # sheet: (string) The name of the sheet to be loaded
+  # parent = climate_opinion_address: (string) parent x
+# Return: 
+  # Loaded sheet
+load_sheet <- function(sheet, parent = climate_opinion_address) {
+  parent |> 
+    read.xlsx(sheet = sheet)
+}
+
+(sheet_names <- climate_opinion_address |> 
+  loadWorkbook() |> sheets()
+ )
+
+selected_sheets <- sheet_names[3:end(sheet_names)]
+
+```
+
+```{r, echo=FALSE, results='hide',warning=FALSE}
+climate_poll_raw <- purrr::map(selected_sheets, load_sheet)
+names(climate_poll_raw) <- as.vector(selected_sheets)
+```
+
+```{r, echo=FALSE, results='hide',warning=FALSE}
+# join_sheets: Takes any of the climate opinon sheets and joins the into one sheet while also recording the question and answer form each sheet
+# parameters:
+  # add_sheet: (tibble) The sheet from the climate_poll_raw that you want to add
+  # master_sheet: (tibble) The sheet that you would like to add the values to. This sheet must have a columns named question_answer that has the correspondence from other sheets in it. 
+# Return:
+  # Master sheet that has the joined data 
+join_sheets <- function(add_sheet, master_sheet) {
+  joined <- master_sheet |>
+  full_join(add_sheet)
+}
+
+# make_question_answer: makes the column that two columns into a question_answer column with the result being question-answer
+# The funciton looks for an existing question_answer col and if there is not one then a new one is created otherwise all the new values are added to the existing one.
+# If there are mutliple unweighted bases then the first is used as it is consistent across each country
+# Parameters:
+  # df: (tibble) data frame that has the inidcated columns
+  # answer_cols c(tibble columns) give a list of column names to be added to the question_answer col
+# Return:
+  # tibble with question_answer col
+make_question_answer <- function(df, answer_cols) {
+  if(!("question_answer" %in% colnames(df))) {
+    df <- df |> mutate(question_answer = NA)
+  }
+  pivot_longer(
+    df,
+    cols = answer_cols,
+    names_to = "question",
+    values_to = "answer",
+    values_drop_na = TRUE
+  ) |>
+  mutate(
+    question_answer = str_c(question, answer, sep = "-")
+  ) |> 
+  select(-c(question, answer)) |>
+  select(question_answer, everything()) |>
+  pivot_longer(
+    cols = c(Albania:Zambia),
+    names_to = "country",
+    values_to = "response_perc"
+  ) |>
+  mutate(
+    response_perc = round(response_perc, 2),
+    unweighted_bias = if_else(str_detect(question_answer, "(Unweighted Base)"), response_perc, NA)
+  ) |> 
+  group_by(country) |>
+  fill(unweighted_bias, .direction = "updown") |>
+  ungroup() |>
+  filter(!(str_detect(question_answer, "Unweighted Base"))) 
+}
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+(master_sheet <- climate_poll_raw[[1]])
+(join_sheets(climate_poll_raw[[1]], climate_poll_raw[[2]]) |> join_sheets(climate_poll_raw[[4]]))
+3
+for(sheet in climate_poll_raw[2:end(climate_poll_raw)]) {
+  master_sheet <- join_sheets(sheet, master_sheet)
+}
+(master_climate_tidy <- master_sheet |> make_question_answer(colnames(select(master_sheet,-(Albania:Zambia)))) |> 
+  arrange(country) |> 
+  mutate(
+     country = str_replace_all(country, "\\.", " ")
+   ) 
+)
+```
+
+## 2.4 Details about the sea ice data
+
+> The sea ice data is quite a large set of data, including over 32,000 entries across 45 years of daily measurements of the global ice extent. While the information is important, such specific information will make it hard to measure any trends, and so we have made the north and south data sets show the average ice extent per year. This will help visualize clearly the trend direction of the global ice extent.
+>
+> **Size:** 16,836 x 5
+>
+> **Columns:**
+>
+> -   Date: (date) Simply the date of which the ice extent was recorded. It is in YYYY-MM-DD form.
+>
+> -   (north/south)\_sea_ice_extent: (double) The amount of ice which is covering the sea.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+south_sea_ice_data <- read_parquet("C:\\Users\\joelw\\OneDrive - Wilfrid Laurier University\\Fall 2023 Course resources\\DA-100\\Projects\\DS_Project_3_R\\Part 2 _final\\south_sea_ice_file.parquet")
+north_sea_ice_data <- read_parquet("C:\\Users\\joelw\\OneDrive - Wilfrid Laurier University\\Fall 2023 Course resources\\DA-100\\Projects\\DS_Project_3_R\\Part 2 _final\\north_sea_ice_file.parquet")
+
+yearly_avg_sea_ice_n <- north_sea_ice_data |>
+                     group_by(year) |>
+                     summarize(avg_sea_ice_extent = mean(north_sea_ice_extent, na.rm = TRUE), region = "North")
+
+yearly_avg_sea_ice_s <- south_sea_ice_data |>
+                     group_by(year) |>
+                     summarize(avg_sea_ice_extent = mean(south_sea_ice_extent, na.rm = TRUE), region = "South")
+
+yearly_sea_ice <- rbind(yearly_avg_sea_ice_n, yearly_avg_sea_ice_s)
+```
+
+## 2.5 Details about the storms data
+
+> This is data about significant storms and hurricanes from 1850 to 2022
+>
+> **Size:** 84,601 × 32
+>
+> **Columns :**
+>
+> -   Basin (string) The ocean area in which the storm is found
+>
+> -   Number (int) unique identifier for the year
+>
+> -   NameYear (int) The year when the storm was named
+>
+> -   ObservTime (date) The time up to the minute when each measurement of the storm was made.
+>
+> -   Max wind (int) The highest wind speed that the storm reached in the time it was measured (knots)
+>
+> -   Latitude and longitude (int) The coorinates for the storms postion when it was measured
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+cyclones <- read_parquet("Cyclone-1850-2023.parquet")
+cyclones_filtered <- cyclones |> filter(num_long >= -200, num_long <= 200)
+```
+
+## 2.6 Data tidying process
+
+> ### 2.6.1 Tidying of the climate data
+>
+> > As detailed above the climate data was in a quite untidy form and in many excel sheets each associated with with a climate poll question. All the columns were countries with their answers to each answer category. The countries were then placed in a column with the corresponding questions, answers, response percentage and unweighted bias.
+> >
+> > **Scoring of the climate concern**
+> >
+> > Since there were multiple different answers to a given question about the climate it was difficult to numerically represent a countries' concern for the given question. To solve this each answer to the question was ranked in order of most concerned to least concern, converted to a factor, and assigned a level. To obtain a single number to model concern the level of the answer was then multiplied by the percentage of number of responses in that answer. Finally all these weighted values were summed together.
+> >
+> > **Climate scoring example**
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+climate_happening = c("No", "Refuse", "Don't know", "Yes")
+# The weights are the indicies from 1-4
+climate_happening_levels <- c("Yes", "Don't know", "Refuse", "No")
+sample_percentages <- c(46.32, 28.30, 4.71, 20.67)
+(weighted_percentages <- factor(climate_happening, levels = climate_happening_levels) |> as.numeric() * sample_percentages)
+(score <- sum(weighted_percentages)) # 300.27
+```
+
+> ### 2.6.2 Merging the happiness data with climate opinion
+>
+> > The data sets were merged by country and only the countries that were in the climate opinion data were merged and the rest were discarded. Since there is some ambiguity in country names (like Czechia and Czech Republic) all the country names in the happiness data were renamed to match the climate opinion data.
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# Change all the names to a fitting name that is compatable with the world data set
+(master_climate_countries <- master_climate_tidy |> summarize(.by = country))
+(countries_old_names <- (master_climate_countries |> 
+  anti_join(summarize(world, .by = region), by = join_by(country ==  region)) |> as.vector())[[1]])
+
+countries_new_names <- c("Philippines", "Bolivia", "Cuba", "Democratic Republic of the Congo", "Ivory Coast", "Czech Republic", "China", "Laos", "North Macedonia", "Sudan", "Trinidad", "UK", "USA")
+
+master_climate_renamed <- master_climate_tidy
+for(i in 1:length(countries_new_names)) {
+  # Note the rename variables function is defined at the top
+  master_climate_renamed <- rename_var(master_climate_renamed, countries_old_names[i], countries_new_names[i], master_climate_renamed$country)
+}
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# Renaming all the happiness countries to match the the climate opinion data
+(happiness_countries_new <- (master_climate_renamed |> summarize(.by = country) |>
+  anti_join(summarize(happiness_raw, .by = country), by = join_by(country)) |> as.vector())[[1]])
+
+(happiness_countries_old <- c("Congo (Kinshasa)", "Czechia", "Puerto Rico", "Taiwan Province of China", "Trinidad and Tobago", "Turkiye", "United Kingdom", "United States"))
+
+happiness_renamed <- happiness_raw
+for(i in 1:length(happiness_countries_old)) {
+  happiness_renamed <- rename_var(happiness_renamed, happiness_countries_old[i], happiness_countries_new[i], happiness_renamed$country)
+}
+
+# Fill the log_gdp values from previous years into the next one if that value is missing. 
+happiness_renamed <- happiness_renamed |> group_by(country) |> fill(log_gdp, .direction = "down") |> ungroup() 
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# Sanity check: do all the names of corresponding coutries match between the happiness data and the climate_master and do those both match the world dataset?
+master_climate_renamed |> summarize(.by = country) |>
+  anti_join(happiness_renamed|> summarize(.by = country), by = join_by(country))
+# Note that this give Puerto Rico, but that is because there was no puerto rico particiaption the happiness survey
+master_climate_renamed |> summarize(.by = country) |>
+  anti_join(world |> summarize(.by = region), by = join_by(country == region))
+
+# The log_gdp values are filled down here to allow the most 
+(gdp_climate_master <-  master_climate_renamed |>
+  inner_join(happiness_renamed |> filter(year == 2022), by = join_by(country)) |>
+  select(question_answer, country, response_perc, unweighted_bias, life_ladder:negative_affect)  |>
+  mutate(
+     country = str_replace_all(country, "\\.", " ")
+   ) 
+)
+
+# Check for NA value in the gdp to verify that none of them are from naming errors
+gdp_climate_master |> filter(is.na(log_gdp))
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# This is renames the regions data to allow for the it to be properly merged with the climate_happiness data
+# Manually adding or changing rows to accomodate the nuances of coutry naming
+regioned_old <- c("Congo, The Democratic Republic of the", "Lao People's Democratic Republic", "Côte D'Ivoire", "Macedonia", "Korea, Democratic People's Republic of", "Trinidad and Tobago", "United Kingdom", "United States")
+
+regioned_new <- c("Democratic Republic of the Congo", "Laos", "Ivory Coast","North Macedonia","South Korea","Trinidad","UK", "USA" )
+
+(region_classification_tidy_2 <- region_classification_tidy)
+for(i in 1:length(regioned_old)) {
+  region_classification_tidy_2 <- rename_var(region_classification_tidy_2, regioned_old[i], regioned_new[i], region_classification_tidy_2$country)
+}
+
+(regioned_add <- gdp_climate_master |> summarize(.by = country) |> 
+  anti_join(region_classification_tidy_2, by = join_by(country)) |> as.vector())[[1]]
+
+
+(row_to_add <- tibble(
+    country = regioned_add[[1]],
+    region = c("Europe", "Africa"),
+    economic_state = c("Developed", "Developing")
+  )
+)
+
+# region_classification_tidy |> view()
+(region_classification_final <- purrr::list_rbind(list(region_classification_tidy_2, row_to_add)))
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# Add a regions and economic state column into the dataset for further classification about the region where every country lies
+(gdp_climate_final <- gdp_climate_master |> 
+   left_join(region_classification_final, by = join_by(country)) |> 
+   select(question_answer, country, region, everything())
+ )
+
+# Verify that there are still no unmatched countries in the climate data
+gdp_climate_final |> summarize(.by = country) |> 
+  anti_join(world |> summarize(.by = region), by = join_by(country == region))
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# Climate concern scoring
+# The answer_levels contains the sorted answers to questions that were deemed from most concerned about the climate to least concerned.
+answer_levels <- list(
+  climate_happening = c("Yes", "Don't know", "Refused", "No"),
+  climate_awareness = c("I know a lot about it", "I know a moderate amount about it", "I know a little about it","Refused", "I have never heard of it"),
+  climate_worry = c("Very worried","Somewhat worried","Not very worried", "Not at all worried", "Refused"),
+  climate_beliefs = c("Caused mostly by human activities","Caused about equally by human activities and natural changes","Caused mostly by natural changes in the environment","Other","Refused","None of the above because climate change isn’t happening"),
+  harm_personally = c("A great deal","A moderate amount","Don't know","Only a little","Refused","Not at all"),
+  harm_future_gen = c("A great deal","A moderate amount","Don't know","Only a little","Refused","Not at all"),
+  threat_20_years = c("Very serious threat", "Somewhat serious threat", "Don't know", "Refused", "Not a threat at all"),
+  climate_importance = c("Extremely important","Very important","Somewhat important","Not too important","Not at all important", "Refused"),
+  economic_impact = c( "Reduce economic growth and cost jobs", "Have no effect on economic growth or jobs", "Improve economic growth and provide new jobs","Refused"),
+  renewable_more_less = c("Much more","Somewhat more","Same amount as today","Don’t know", "Somewhat less","Much less","Refused"),
+  fossil_more_less = c("Refused", "Much less", "Somewhat less", "Don’t know", "Same amount as today", "Somewhat more", "Much more"),
+  gov_priority = c("Very high","High","Medium","Low","Refused"),
+  country_responsibility = c("Regardless of what other countries do", "Only if the countries that produce the most pollution reduce their pollution", "Only if most other countries around the world reduce their pollution","Don’t know", "The country (or territory) where I live should not reduce its pollution","Refused"),
+  most_responsible = c("The government", "Businesses", "Individual people", "Don’t know", "The country (or territory) where I live should not reduce its pollution",  "Refused"),
+  organized_group = c("I am participating in an effort like this now", "I definitely would do it", "I probably would do it","Not sure", "I probably would not do it", "I definitely would not do it", "Refused"),
+  freq_hear = c("At least once a week", "At least once a month",  "Several times a year", "Once a year or less often","Don't know", "Never","Refused")
+)
+```
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+# opinion_vs_gdp This gets each opinion section and compares it to the gdp of that county
+# parameters:
+  # gdp_climate_df: (tibble) the dataframe of gdp and climate
+  # key_word: (string) the key word or phrase that describes the polling question
+# Return:
+  # Dataframe of the question with a score for the extent of concern
+opinion_vs_gdp <- function(gdp_climate_df, key_word) {
+   gdp_climate_final |>
+    filter(str_detect(question_answer, key_word)) |>
+    mutate(
+      score_levels = factor(str_remove(question_answer, str_c(key_word, "-")), levels = rev(answer_levels[key_word][[1]])) |> as.numeric()
+    ) |>
+    select(-question_answer) |>
+    mutate( 
+      .by = country,
+      "{key_word}" := sum(score_levels*response_perc, na.rm = TRUE),
+      .keep = "unused"
+    ) |> 
+    distinct()
+}
+
+(questions <- gdp_climate_final$question_answer |> str_split_i("-", 1) |> unique())
+(gdp_concern_scored <- opinion_vs_gdp(gdp_climate_final, questions[1]))
+
+
+for(question in questions[2:end(questions)]) {
+  gdp_concern_scored <- inner_join(
+    gdp_concern_scored, 
+    opinion_vs_gdp(gdp_climate_final, question) |> select(question, country), 
+    by = join_by(country))
+}
+(gdp_concern_scored <- gdp_concern_scored |> select(country, region, log_gdp, economic_state:freq_hear, everything()))
+```
+
+# 3 Analysis of GDP
+
+Exploration of GDP and different form of climate concern
+
+## 3.1 Distribution of GDP
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+gg <- ggplot()
+world_map <- gg + geom_map(
+  data = world,
+  map = world,
+  aes(x = long, y = lat, map_id = region),
+  fill = "gray",
+  color = "#ffffff",
+  size = 0.20
+  )
+  
+# Create a map of the countries with the most gdp
+(gdp_map <- world_map + geom_map(
+  data = gdp_climate_final,
+  map = world,
+  aes(fill = log_gdp, map_id = country),
+  color = "#ffffff",
+  size = 0.15
+  ) + 
+  scale_fill_viridis_c() +
+  labs(
+    title = "Figure 3.1.1 What surveyed countries by Gross Domestic Proft per capita",
+    subtitle = "The gdp values are on a logorithmic scale",
+    caption = "data from World Happiness Report"
+  )
+)
+```
+
+```{r, message=FALSE, echo=FALSE}
+gdp_concern_scored |> 
+  mutate(
+    gdp = exp(log_gdp) 
+  ) |>
+  summarize(
+    min_log_gdp = min(log_gdp),
+    max_log_gdp = max(log_gdp),
+    min_gdp = min(gdp),
+    max_gdp = max(gdp),
+    mean_gdp = mean(gdp),
+    median_gdp = median(gdp)
+  )
+```
+
+> Although this map only includes 80 different countries it quite clearly shows some significant differences in the "wealth" per person across different countries. This difference spans 3 orders of magnitude with Ireland having the highest GDP per person per year of $e^{11.62} = \$111850.00$ down to the Democratic republic of the Congo with $e^7 = \$1103.97$. So given these disparities can a person's concern for the climate be predicted by their wealth? Are wealthy countries more concerned because they have more to lose?
+
+## 3.2 Why is GDP relevant to climate?
+
+> Why are people concerned about the climate? Why would someone care if the world climate becomes less habitable and life becomes harder for humans. Especially if the may not even be alive for any significant climate catastrophe. The answer is that there is ultimately something the people feel is worth preserving on the planet.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Obeserving the correlation of GDP with living conditions
+regression_plot(
+  gdp_concern_scored$log_gdp, 
+  gdp_concern_scored$life_ladder, 
+  color = gdp_concern_scored$economic_state, 
+  caption = "Data from World Happiness Report", 
+  title = "Figure 3.2 The relationship between a country's log_gdp and life ladder") 
+```
+
+> Since there is clear correlation of 0.748 between a country's GDP and their life ladder it seems reasonable to presume that people who have higher living conditions have more to lose if the climate does take a turn for the worse and therefore out to be more concerned about the climate. Is the solution to climate complacency simply to allow people to become more wealthy and satisfy the pressing needs of everyday life. Are climate fears really only harbored by people who can actually afford to worry about the long term future and preserving the human flame of consciousness?
+
+# 4 How does a countries' GDP per capita affect their climate opinions
+
+## 4.1 Maps of climate opinion
+
+> The scored climate opinions are mapped to show the distribution of concern about different climate related topics across the world.
+
+```{r message=FALSE, echo=FALSE, results='hide'}
+# map_concern: From the scored gdp data it creates a map displaying the distdribution of concern of the polled question
+# Parameters:
+  # question_data: (tibble) the dataset with all the questions and scored responses   # prefix: (string) THis is used to place a figure number in the title
+  # question: (string) the name of the question column that is in interest here
+# Return: 
+   # ggplot visualization of the question vs the log gdp 
+map_concern <- function(question_data, question, prefix = "") {
+  # Create a map of the countries with the most gdp
+  world_map + geom_map(
+    data = question_data,
+    map = world,
+    aes(fill = .data[[question]], map_id = country),
+    color = "#ffffff",
+    size = 0.15
+    ) +
+    geom_abline(intercept = 0, slope = 0, color = "gray", alpha = 0.8) +
+    scale_fill_viridis_c() +
+    labs(
+      title = str_glue("{prefix}Distribution of {question} across suerveyed countries"),
+      subtitle = str_wrap(str_glue("Question categories: {str_flatten(answer_levels[question], collapse = ", ")}"), width = 100, whitespace_only = TRUE),
+      fill = question,
+      caption = "Data from Meta and Yale climate program"
+    ) 
+}
+
+# purrr::map(questions, ~ map_concern(gdp_concern_scored, .x))
+```
+
+> ### 4.1.1 Climate beliefs
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+map_concern(gdp_concern_scored, "climate_beliefs", prefix = "Figure 4.1.1 ")
+```
+
+> > The scoring scale on displays the extent to which people feel that climate change is something primarily caused by humans versus the natural perturbations in earth's course of nature. From this map it seems that many of the developed countries consider climate change to be something as a direct consequence of human action. The more equatorial developing countries consider the climate be more natural.
+
+> ### 4.1.2 Fossil fuel reduction
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+map_concern(gdp_concern_scored, "fossil_more_less", prefix = "Figure 4.1.2 ")
+```
+
+> > The countries that consider climate change to be a consequence of human activity also seem to be more willing to remove fossil fuels from their power diet. Are countries that are more concerned causes that humans may have on the climate also more willing to reduce fossil fuels. Perhaps there is something deeper underlying this issue. Notice that the countries more concerned about removing fossil fuels are also countries that have a high GPD per capita and higher standing on the life ladder.
+
+> ### 4.1.3 Climate worry
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+map_concern(gdp_concern_scored, "climate_worry", prefix = "Figure 4.1.3 ")
+```
+
+> > This map shows that many of the countries that believed that climate change is signifcantly change by humans and want to get rid of fossil fuels are actually less worried about climate change than those who want to keep fossil fuels as a primary artery for power generation. Evidently fear of climate change does not seem to be the driving factor for the "green revolution".
+
+> ### 4.1.4 Frequency of hearing about climate
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+map_concern(gdp_concern_scored, "freq_hear", prefix = "Figure 4.1.4 ")
+```
+
+> > An objection may arise. How do you know that worry is generated by hearing about climate more often. Perhaps in the countries that are more worried also hear about the threats of climate change more often. Figure 4.1.4 refutes that claim and in fact shows that the less concerned countries are actually less worried about the climate than the ones that rarely hear about it. This brings into question the notion of "raising awareness". Is making people more aware of climate actually helping to bring forward solutions?
+
+## 4.2 How does economics infiltrates the climate opinion
+
+### 4.2.1 GDP and climate opinion
+
+**Figure 4.2.1 How GDP affects climate opinion**
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+topics <- c("climate_beliefs", "fossil_more_less", "climate_worry", "freq_hear")
+# Watching the way in which climate worry, climate beliefs desire to reduce fossil fuels and frequency of hearing about climate relate to eachother
+relations <- purrr::imap(
+  select(gdp_concern_scored, topics), 
+  ~regression_plot(gdp_concern_scored$log_gdp, .x, y_lab = .y, minimal_labels = TRUE)
+  ) 
+  
+grid.arrange(relations[[topics[1]]], relations[[topics[2]]], relations[[topics[3]]], relations[[topics[4]]], nrow = 2)
+```
+
+> > A person's GDP holds little bearing on the on their worry about climate, but GDP does correlate with the willingness of people to do something about climate change. So it seems more probable that climate worry should be higher in places that are more susceptible to more severe weather and climate related events which is explored in more detail in section 5.
+
+### 4.2.2 Afford ability of reducing fossil fuels
+
+> > On the other hand climate beliefs, fossil fuel reduction and frequency of hearing all are clearly related to a country's GDP per capita. It is quite clear that wealthier countries are more open to removing fossil fuels from their power production because they believe that that will make a difference. Not only that but until recently the only people who could afford to significantly replace fossil fuels with renewable sources of energy were the countries with a higher GDP per person. As shown in the figure from the Intergovernmental Panel on Climate Change (IPCC) report, it has only been a recent development that alternative sources of power production have become available at a cost comparable to fossil fuels.
+
+![Figure 4.2.2 from IPCC 2023 report \<[[https://www.ipcc.ch/report/ar6/wg3/figures/summary-for-policymakers/figure-spm-3/\\\\](https://www.ipcc.ch/report/ar6/wg3/figures/summary-for-policymakers/figure-spm-3/\\){.uri}]([https://www.ipcc.ch/report/ar6/wg3/figures/summary-for-policymakers/figure-spm-3/\\](https://www.ipcc.ch/report/ar6/wg3/figures/summary-for-policymakers/figure-spm-3/\){.uri}){.uri}\>](ipcc_img.png)
+
+# 5. What causes worry about climate
+
+## 5.1 Climate worry is not related to relinquishing of fossil fuels
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+worry_econ <- gdp_concern_scored |> ggplot(mapping = aes(x = climate_worry, fill = economic_state)) +
+    geom_histogram(binwidth = 20, position = "dodge", color = "black") +
+    labs(
+      title = "Figure 5.1.2 Country's economic state and climate worry",
+      y = "count",
+      caption = "Data from Meta and Yale climate program"
+    )
+fossil_econ <- gdp_concern_scored |> ggplot(mapping = aes(x = fossil_more_less, fill = economic_state)) +
+    geom_histogram(binwidth = 20, position = "dodge", color = "black") +
+    labs(
+      title = "Figure 5.1.1 Country's economic state and perception of fossil fuels",
+      y = "count",
+      caption = "Data from Meta and Yale climate program"
+    )
+grid.arrange(fossil_econ, worry_econ, nrow = 2)
+```
+
+> Figure 4.2.1, figure 5.1.1, and figure 5.1.2 show that climate worry does not immediately cause people to bring about a solution through reducing carbon emissions from fossil fuels. Therefore fear mongering about the climate is not the solution to fighting climate change. Really the a better approach to incetivizing people to actually do something about the climate is to make them more wealthy. Bring more of the countries from the blue developing category into the red developed class.
+
+## 5.2 More worried countries are geographically at risk.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+south_amer_worry <- map_concern(gdp_concern_scored, "climate_worry", prefix = "Figure 4.1.3 ") + 
+  xlim(-120, -35) +
+  ylim(-55, 30) +
+  labs(
+    title = "Figure 5.2.1 South/Cental America",
+    subtitle = str_wrap("The recession of sea ice and increased storms is more concering for costal regions", 44)
+  )
+
+south_asia_worry <- map_concern(gdp_concern_scored, "climate_worry", prefix = "Figure 4.1.3 ") + 
+  xlim(60, 150) +
+  ylim(-60, 25) +
+  labs(
+    title = "Figure 5.2.2 South Asia & Pacific",
+    subtitle = str_wrap("The recession of sea ice and increased storms is more concering for costal regions", 44)
+  )
+
+
+grid.arrange(south_amer_worry, south_asia_worry, nrow = 1)
+```
+
+> The tropical coastal countries appear to be more concerned about the cimate than. Many of the more northern inland countries. Climate change will have the most significant impact on low income tropical warm countries. Also it is interesting to note that even though both the Asia pacific and south/central American countries are quite worried about the climate, however the south/central American countries are much more worried.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+yearly_sea_ice |> ggplot(aes(x = year, y = avg_sea_ice_extent)) +
+  geom_line(size = 1, color = "#1f78b4") +
+  geom_smooth(method = "lm", se = TRUE, color = "green", linetype = "dotdash") +
+  labs(
+    title = "Figure 5.2.3 Average yearly sea extent ice",
+    subtitle = "The sea ice is declining in both the northern and southern hemisphere",
+    x = "Year",
+    y = "Average Sea Ice Extent (Km^2)",
+    caption = "Data from nsidc.org"
+  ) +
+  facet_wrap(~region, scale = "free") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+```
+
+> The downward trending sea ice provied good rational for the concern of that quite costal countires have about climate change. In the event of rampant loss of ice on both the poles islands could be completely engulfed by the sea and costal cities could become like Venice.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+gg_map <- ggplot() + 
+  geom_map(
+  data = world,
+  map = world,
+  aes(x = long, y = lat, map_id = region),
+  fill = "gray",
+  color = "#ffffff",
+  size = 0.20
+  )
+
+gg_map +
+  geom_point(data = cyclones_filtered , aes(x = num_long, y = num_lat), color ="red", size = 0.1, alpha = 0.02) +
+  labs(
+    title = "Figure 5.2.4 The distributuion of major storms from 1850 - 2022",
+    subtitle = "The tropical and costal central American regions are affected most by increasing climate events",
+    caption = "Data from NOAA"
+  ) +
+  theme_minimal()
+```
+
+> This may suggest why there is much more climate worry in south/central America. Not only do they have sea ice to worry about, but every year they are pummeled with intense hurricanes and tropical storms.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+cyclones_filtered |>
+  summarize(.by = c(NameYear, Basin), num_storms = n_distinct(Number))  |>
+  arrange(desc(num_storms)) |>
+  ggplot(mapping = aes(x = NameYear, y = num_storms, fill = Basin)) +
+  geom_bar(stat = "identity") +
+  geom_smooth(se = FALSE) +
+  facet_wrap(~Basin, scales = "free") +
+  labs(
+    title = "Figure 5.2.5 The number of major storms per year is trending upwards",
+    caption = "Data from NOAA"
+  )
+```
+
+> Another cause for climate concern in the central American region of the world is that there has beeen an uptick of intense hurricanes and storms. A country's concern for the climate seems very tied to its geophysical location rather than the GDP of that country. It is difficult to not worry about the climate when it continually comes knocking on your back door.
+
+## 5.3 What can be done for the at risk countries
+
+> The declining sea ice and the increased storms pose a great threat to many tropical and costal countries and hence why they are worried about exacerbating the climate. The best thing that can be done for these contries is allow then to butress their infastructure to be able to weather the storms and even a form of dikes for costal cities that could become submerged by rising sea levels. This kind of preparation will require the country to have a stable economy built from cheap and reliable energy production. Ultimately the best preparation for the storm of climate is to invest heavily in infastructure engineering to build countries able to handle climate change.
+
+# 6 Conclusion a better approach to fighting climate change
+
+## 6.1 Develop more countries
+
+> The prior sections have outlined how critical the wealth of a population is to their perception of climate and willingness to curb emissions. Therefore it seems that the best way to apply the brakes to climate change is to allow countries to develop and build strong economies.
+
+> The industrial revolution is often cited as the culprit for much of the world's carbon emissions and that is true, but along with emissions we also gained a much broader ability to manufacture and innovate. Todd Moss and Jacob Kincer (March 2023) in their article [How does energy impact economic growth? An overview of the evidence](https://energyforgrowth.org/article/how-does-energy-impact-economic-growth-an-overview-of-the-evidence/) show that energy is not only critical for economic development, but that there are **no** countries that have a high GDP per capita and low energy consumption. Gita Smith another commentor in her article [Are Fossil Fuel Resources Important for Economic Development?](https://econ.gatech.edu/projects/are-fossil-fuel-resources-important-economic-development) suggests energy affordability and reliability is critical to economic development and that this energy in the beginning must be fossil fuels. Now we are faced with what would appear to be a dilemma. Curbing global emissions could be done, but not without significant crippling to developing countries and prolonging poverty. Or instead we could allow developing countries to use to fossil fuels until they have enough economic stability to transform their power grid.
+
+## 6.2 Climate change is an engineering problem
+
+> Since increasing a country's GDP increases their desire to act about climate the best defense against possible climate change is to satisfy people's needs so they can work towards making a better future. In section 6.1 we saw that increasing GDP is a matter of making energy more available. As was discussed in the figure from the IPCC 2023 report, engineering from 2010 to the present has significantly decreased the cost of both solar and wind production of power to the point where they rival fossil fuels in inexpensiveness. Also battery technology is on the rise which will allow renewable sources of energy to be reliable in combination with inexpensive. Therefore instead of ensuring that developing countries remain poor by removing their access to reliable energy the developed countries should use their capabilities to help developing countries build better energy grids.
+
+# 7.1 References
+
+Are fossil fuel resources important for economic development?. School of Economics. (n.d.). <https://econ.gatech.edu/projects/are-fossil-fuel-resources-important-economic-development>
+
+IPCC. (2021, August 9). Figure: SPM.3. IPCC Intergovernmental Panel on Climate Change. <https://www.ipcc.ch/report/ar6/wg3/figures/summary-for-policymakers/figure-spm-3/>
+
+Moss, T., & Kincer, J. (2023, June 12). How does energy impact economic growth? an overview of the evidence. Energy for Growth Hub. <https://energyforgrowth.org/article/how-does-energy-impact-economic-growth-an-overview-of-the-evidence/>
